@@ -1,7 +1,8 @@
 ﻿
 #include "Headers.h"
 #include <filesystem>
-
+#include <locale>
+#include <codecvt>
 void SaveIcon(HICON hIcon, const std::string& filename) {
 	// Create a BITMAPINFO structure to get the icon's information
 	ICONINFO iconInfo;
@@ -108,21 +109,32 @@ extern "C" {
 	}
 }
 
-int main() {
+int main(int argc, const char** argv, const char** envp) {
 	 
-	std::wstring input;
-	std::getline(std::wcin, input);
+	header:
+	std::wstring inputFile;
+	std::wstring inputOutput;
 
-	std::wstring input;
-	std::getline(std::wcin, input);
+	std::cout << "Write full path" << std::endl;
+	std::getline(std::wcin, inputFile);
 
-	if (std::filesystem::exists(input)) {
-		ExportIcon(input, "sadasd.ico", IconSize::Small, false);
+	
 
+	if (std::filesystem::exists(inputFile)) {
 
+		std::cout << "Write full path export icon" << std::endl;
+		std::getline(std::wcin, inputOutput);
+
+		if (inputOutput.size() == 0) {
+			std::cout << "Path is Empty!" << std::endl;
+			goto header;
+		}
+		std::wstring_convert<std::codecvt_utf8<wchar_t>> converter;
+		ExportIcon(inputFile, converter.to_bytes(inputOutput), IconSize::Large, false);
 	}
 	else {
 		std::cout << "File not found!" << std::endl;
+		goto header;
 	}
 
 	return 0;
