@@ -13,3 +13,6 @@ project ("FileIconExtractor")
 
 # Включите подпроекты.
 add_subdirectory ("FileIconExtractor")
+ 
+
+

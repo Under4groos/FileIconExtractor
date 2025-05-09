@@ -94,8 +94,12 @@ HICON GetFileIcon(const std::wstring& name, IconSize size, bool linkOverlay) {
 }
 
 extern "C" {
-	__declspec(dllexport) bool ExportIcon(const std::wstring& name, std::string exportPath, IconSize size, bool linkOverlay) {
-		HICON icon = GetFileIcon(name, size, linkOverlay);
+	__declspec(dllexport) bool ExportIcon(std::string name, std::string exportPath, IconSize size, bool linkOverlay) {
+
+		std::wstring_convert<std::codecvt_utf8<wchar_t>> converter;
+
+		HICON icon = GetFileIcon(converter.from_bytes(name), size, linkOverlay);
+
 		if (icon) {
 
 			SaveIcon(icon, exportPath);
@@ -110,32 +114,22 @@ extern "C" {
 }
 
 int main(int argc, const char** argv, const char** envp) {
-	 
-	header:
-	std::wstring inputFile;
-	std::wstring inputOutput;
 
-	std::cout << "Write full path" << std::endl;
-	std::getline(std::wcin, inputFile);
+	if (argc < 3) {
+		std::cout << "Usage: " << argv[0] << " <name> <exportPath>\n";
+		return 1;
+	}
 
-	
+	std::string inputFile = argv[1];
+	std::string exportPath = argv[2];
 
 	if (std::filesystem::exists(inputFile)) {
 
-		std::cout << "Write full path export icon" << std::endl;
-		std::getline(std::wcin, inputOutput);
-
-		if (inputOutput.size() == 0) {
-			std::cout << "Path is Empty!" << std::endl;
-			goto header;
+		if (ExportIcon(inputFile, exportPath, IconSize::Large, false)) {
+			std::cout << "Export: " << exportPath << std::endl;
 		}
-		std::wstring_convert<std::codecvt_utf8<wchar_t>> converter;
-		ExportIcon(inputFile, converter.to_bytes(inputOutput), IconSize::Large, false);
-	}
-	else {
-		std::cout << "File not found!" << std::endl;
-		goto header;
-	}
 
+
+	}
 	return 0;
 }

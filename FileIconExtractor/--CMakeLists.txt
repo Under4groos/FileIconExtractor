@@ -1,0 +1,26 @@
+cmake_minimum_required(VERSION 3.8)
+
+project(FileIconExtractor)
+
+# Specify the source files for the DLL
+set(SOURCES
+    FileIconExtractor.cpp
+)
+
+# Create a shared library (DLL)
+add_library(FileIconExtractor SHARED ${SOURCES})
+
+# Specify include directories
+target_include_directories(FileIconExtractor PUBLIC include)
+
+set_property(TARGET FileIconExtractor PROPERTY CXX_STANDARD 20)
+SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /UMBCS /D_UNICODE /DUNICODE")
+#set(CMAKE_CXX_FLAGS_DEBUG "-g")
+#set(CMAKE_CXX_FLAGS_RELEASE "-O3")
+
+
+# Optionally, set the output directory for the DLL
+set_target_properties(FileIconExtractor PROPERTIES
+    OUTPUT_NAME "FileIconExtractor"  # Name of the DLL
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"  # Output directory
+)
