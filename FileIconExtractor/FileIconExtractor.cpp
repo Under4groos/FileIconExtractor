@@ -285,9 +285,7 @@ int main(int argc, const char** argv, const char** envp) {
 
 	if (std::filesystem::exists(inputFile)) {
  
-		/*if (ExportIcon(inputFile, exportPath, SHGFI_ICON or SHGFI_SMALLICON, false)) {
-			std::cout << "Export: " << exportPath << std::endl;
-		}*/
+		 
         std::wstring stemp = std::wstring(inputFile.begin(), inputFile.end());
         LPCWSTR src = stemp.c_str();
 
