@@ -1,8 +1,94 @@
 ﻿
 #include "Headers.h"
+
+#include <iostream>
+#include <fstream>
 #include <filesystem>
 #include <locale>
 #include <codecvt>
+#include <olectl.h>
+#pragma comment(lib, "oleaut32.lib")
+#include <atlbase.h>
+void SaveIconToFile(HICON hico, std::string szFileName, BOOL bAutoDelete = FALSE)
+{
+	PICTDESC pd = { sizeof(pd), PICTYPE_ICON };
+	pd.icon.hicon = hico;
+
+	CComPtr<IPicture> pPict = NULL;
+	CComPtr<IStream>  pStrm = NULL;
+	LONG cbSize = 0;
+
+	BOOL res = FALSE;
+
+	res = SUCCEEDED(::CreateStreamOnHGlobal(NULL, TRUE, &pStrm));
+	res = SUCCEEDED(::OleCreatePictureIndirect(&pd, IID_IPicture, bAutoDelete, (void**)&pPict));
+	res = SUCCEEDED(pPict->SaveAsFile(pStrm, TRUE, &cbSize));
+
+	if (res)
+	{
+		// rewind stream to the beginning
+		LARGE_INTEGER li = { 0 };
+		pStrm->Seek(li, STREAM_SEEK_SET, NULL);
+
+		// write to file
+		HANDLE hFile = ::CreateFileA(szFileName.c_str(), GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, 0, NULL);
+		if (INVALID_HANDLE_VALUE != hFile)
+		{
+			DWORD dwWritten = 0, dwRead = 0, dwDone = 0;
+			BYTE  buf[4096];
+			while (dwDone < cbSize)
+			{
+				if (SUCCEEDED(pStrm->Read(buf, sizeof(buf), &dwRead)))
+				{
+					::WriteFile(hFile, buf, dwRead, &dwWritten, NULL);
+					if (dwWritten != dwRead)
+						break;
+					dwDone += dwRead;
+				}
+				else
+					break;
+			}
+
+			_ASSERTE(dwDone == cbSize);
+			::CloseHandle(hFile);
+		}
+	}
+}
+HRESULT SaveIcon2(HICON hIcon, const char* path) {
+	// Create the IPicture intrface
+	PICTDESC desc = { sizeof(PICTDESC) };
+	desc.picType = PICTYPE_BITMAP;
+	desc.icon.hicon = hIcon;
+	IPicture* pPicture = 0;
+	HRESULT hr = OleCreatePictureIndirect(&desc, IID_IPicture, FALSE, (void**)&pPicture);
+	if (FAILED(hr)) return hr;
+
+	// Create a stream and save the image
+	IStream* pStream = 0;
+	CreateStreamOnHGlobal(0, TRUE, &pStream);
+	LONG cbSize = 0;
+	hr = pPicture->SaveAsFile(pStream, TRUE, &cbSize);
+
+	// Write the stream content to the file
+	if (!FAILED(hr)) {
+		HGLOBAL hBuf = 0;
+		GetHGlobalFromStream(pStream, &hBuf);
+		void* buffer = GlobalLock(hBuf);
+		HANDLE hFile = CreateFileA(path, GENERIC_WRITE, 0, 0, CREATE_ALWAYS, 0, 0);
+		if (!hFile) hr = HRESULT_FROM_WIN32(GetLastError());
+		else {
+			DWORD written = 0;
+			WriteFile(hFile, buffer, cbSize, &written, 0);
+			CloseHandle(hFile);
+		}
+		GlobalUnlock(buffer);
+	}
+	// Cleanup
+	pStream->Release();
+	pPicture->Release();
+	return hr;
+
+}
 void SaveIcon(HICON hIcon, const std::string& filename) {
 	// Create a BITMAPINFO structure to get the icon's information
 	ICONINFO iconInfo;
@@ -11,7 +97,15 @@ void SaveIcon(HICON hIcon, const std::string& filename) {
 	// Create a bitmap from the icon
 	HDC hdc = GetDC(NULL);
 	HBITMAP hBitmap = CreateCompatibleBitmap(hdc, iconInfo.xHotspot * 2, iconInfo.yHotspot * 2);
+
+
+	 
+
+
+
 	HDC hdcMem = CreateCompatibleDC(hdc);
+
+
 	SelectObject(hdcMem, hBitmap);
 
 	// Draw the icon onto the bitmap
@@ -34,6 +128,9 @@ void SaveIcon(HICON hIcon, const std::string& filename) {
 	bi.biYPelsPerMeter = 0;
 	bi.biClrUsed = 0;
 	bi.biClrImportant = 0;
+
+
+
 
 	DWORD dwSize = ((bmp.bmWidth * bi.biBitCount + 31) / 32) * 4 * bmp.bmHeight;
 	BYTE* pPixels = new BYTE[dwSize];
@@ -63,11 +160,11 @@ void SaveIcon(HICON hIcon, const std::string& filename) {
 }
 
 
+ 
 
 
 
-
-HICON GetFileIcon(const std::wstring& name, IconSize size, bool linkOverlay) {
+HICON GetFileIcon(const std::wstring& name, int size, bool linkOverlay) {
 	SHFILEINFO shfi;
 	UINT flags = SHGFI_ICON | SHGFI_USEFILEATTRIBUTES;
 
@@ -83,6 +180,8 @@ HICON GetFileIcon(const std::wstring& name, IconSize size, bool linkOverlay) {
 		flags |= SHGFI_LARGEICON; // include the large icon flag
 	}
 
+	// FILE_ATTRIBUTE_TEMPORARY 256
+	// FILE_ATTRIBUTE_NORMAL 16
 	// Get the file information
 	SHGetFileInfo(name.c_str(), FILE_ATTRIBUTE_NORMAL, &shfi, sizeof(shfi), flags);
 
@@ -93,8 +192,9 @@ HICON GetFileIcon(const std::wstring& name, IconSize size, bool linkOverlay) {
 	return icon;
 }
 
+ 
 extern "C" {
-	__declspec(dllexport) bool ExportIcon(std::string name, std::string exportPath, IconSize size, bool linkOverlay) {
+	__declspec(dllexport) bool ExportIcon(std::string name, std::string exportPath, int size, bool linkOverlay) {
 
 		std::wstring_convert<std::codecvt_utf8<wchar_t>> converter;
 
@@ -102,7 +202,9 @@ extern "C" {
 
 		if (icon) {
 
-			SaveIcon(icon, exportPath);
+			SaveIconToFile(icon, exportPath.c_str());
+
+
 			DestroyIcon(icon);
 			return TRUE;
 		}
@@ -124,8 +226,9 @@ int main(int argc, const char** argv, const char** envp) {
 	std::string exportPath = argv[2];
 
 	if (std::filesystem::exists(inputFile)) {
-
-		if (ExportIcon(inputFile, exportPath, IconSize::Large, false)) {
+		//IconSize::Small SHGFI_ICON or SHGFI_SMALLICON 
+		// IconSize::Small
+		if (ExportIcon(inputFile, exportPath, SHGFI_USEFILEATTRIBUTES, false)) {
 			std::cout << "Export: " << exportPath << std::endl;
 		}
 
