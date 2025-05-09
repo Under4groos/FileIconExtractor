@@ -228,7 +228,7 @@ int main(int argc, const char** argv, const char** envp) {
 	if (std::filesystem::exists(inputFile)) {
 		//IconSize::Small SHGFI_ICON or SHGFI_SMALLICON 
 		// IconSize::Small
-		if (ExportIcon(inputFile, exportPath, SHGFI_USEFILEATTRIBUTES, false)) {
+		if (ExportIcon(inputFile, exportPath, SHGFI_ICON or SHGFI_SMALLICON, false)) {
 			std::cout << "Export: " << exportPath << std::endl;
 		}
 
