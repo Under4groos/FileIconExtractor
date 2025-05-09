@@ -1,220 +1,276 @@
-﻿
+﻿#include<windows.h>
+#include<ShlObj_core.h>
+#include<string>
+#include<iostream>
 #include "Headers.h"
-
-#include <iostream>
-#include <fstream>
-#include <filesystem>
-#include <locale>
-#include <codecvt>
-#include <olectl.h>
-#pragma comment(lib, "oleaut32.lib")
-#include <atlbase.h>
-void SaveIconToFile(HICON hico, std::string szFileName, BOOL bAutoDelete = FALSE)
+typedef struct
 {
-	PICTDESC pd = { sizeof(pd), PICTYPE_ICON };
-	pd.icon.hicon = hico;
+    WORD idReserved; // must be 0
+    WORD idType; // 1 = ICON, 2 = CURSOR
+    WORD idCount; // number of images (and ICONDIRs)
 
-	CComPtr<IPicture> pPict = NULL;
-	CComPtr<IStream>  pStrm = NULL;
-	LONG cbSize = 0;
+    // ICONDIR [1...n]
+    // ICONIMAGE [1...n]
 
-	BOOL res = FALSE;
+} ICONHEADER;
 
-	res = SUCCEEDED(::CreateStreamOnHGlobal(NULL, TRUE, &pStrm));
-	res = SUCCEEDED(::OleCreatePictureIndirect(&pd, IID_IPicture, bAutoDelete, (void**)&pPict));
-	res = SUCCEEDED(pPict->SaveAsFile(pStrm, TRUE, &cbSize));
+//
+// An array of ICONDIRs immediately follow the ICONHEADER
+//
+typedef struct
+{
+    BYTE bWidth;
+    BYTE bHeight;
+    BYTE bColorCount;
+    BYTE bReserved;
+    WORD wPlanes; // for cursors, this field = wXHotSpot
+    WORD wBitCount; // for cursors, this field = wYHotSpot
+    DWORD dwBytesInRes;
+    DWORD dwImageOffset; // file-offset to the start of ICONIMAGE
 
-	if (res)
-	{
-		// rewind stream to the beginning
-		LARGE_INTEGER li = { 0 };
-		pStrm->Seek(li, STREAM_SEEK_SET, NULL);
+} ICONDIR;
 
-		// write to file
-		HANDLE hFile = ::CreateFileA(szFileName.c_str(), GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, 0, NULL);
-		if (INVALID_HANDLE_VALUE != hFile)
-		{
-			DWORD dwWritten = 0, dwRead = 0, dwDone = 0;
-			BYTE  buf[4096];
-			while (dwDone < cbSize)
-			{
-				if (SUCCEEDED(pStrm->Read(buf, sizeof(buf), &dwRead)))
-				{
-					::WriteFile(hFile, buf, dwRead, &dwWritten, NULL);
-					if (dwWritten != dwRead)
-						break;
-					dwDone += dwRead;
-				}
-				else
-					break;
-			}
+//
+// After the ICONDIRs follow the ICONIMAGE structures -
+// consisting of a BITMAPINFOHEADER, (optional) RGBQUAD array, then
+// the color and mask bitmap bits (all packed together
+//
+typedef struct
+{
+    BITMAPINFOHEADER biHeader; // header for color bitmap (no mask header)
+    //RGBQUAD rgbColors[1...n];
+    //BYTE bXOR[1]; // DIB bits for color bitmap
+    //BYTE bAND[1]; // DIB bits for mask bitmap
 
-			_ASSERTE(dwDone == cbSize);
-			::CloseHandle(hFile);
-		}
-	}
-}
-HRESULT SaveIcon2(HICON hIcon, const char* path) {
-	// Create the IPicture intrface
-	PICTDESC desc = { sizeof(PICTDESC) };
-	desc.picType = PICTYPE_BITMAP;
-	desc.icon.hicon = hIcon;
-	IPicture* pPicture = 0;
-	HRESULT hr = OleCreatePictureIndirect(&desc, IID_IPicture, FALSE, (void**)&pPicture);
-	if (FAILED(hr)) return hr;
+} ICONIMAGE;
 
-	// Create a stream and save the image
-	IStream* pStream = 0;
-	CreateStreamOnHGlobal(0, TRUE, &pStream);
-	LONG cbSize = 0;
-	hr = pPicture->SaveAsFile(pStream, TRUE, &cbSize);
+//
+// Write the ICO header to disk
+//
+static UINT WriteIconHeader(HANDLE hFile, int nImages)
+{
+    ICONHEADER iconheader;
+    DWORD nWritten;
 
-	// Write the stream content to the file
-	if (!FAILED(hr)) {
-		HGLOBAL hBuf = 0;
-		GetHGlobalFromStream(pStream, &hBuf);
-		void* buffer = GlobalLock(hBuf);
-		HANDLE hFile = CreateFileA(path, GENERIC_WRITE, 0, 0, CREATE_ALWAYS, 0, 0);
-		if (!hFile) hr = HRESULT_FROM_WIN32(GetLastError());
-		else {
-			DWORD written = 0;
-			WriteFile(hFile, buffer, cbSize, &written, 0);
-			CloseHandle(hFile);
-		}
-		GlobalUnlock(buffer);
-	}
-	// Cleanup
-	pStream->Release();
-	pPicture->Release();
-	return hr;
+    // Setup the icon header
+    iconheader.idReserved = 0; // Must be 0
+    iconheader.idType = 1; // Type 1 = ICON (type 2 = CURSOR)
+    iconheader.idCount = nImages; // number of ICONDIRs
 
-}
-void SaveIcon(HICON hIcon, const std::string& filename) {
-	// Create a BITMAPINFO structure to get the icon's information
-	ICONINFO iconInfo;
-	GetIconInfo(hIcon, &iconInfo);
+    // Write the header to disk
+    WriteFile(hFile, &iconheader, sizeof(iconheader), &nWritten, 0);
 
-	// Create a bitmap from the icon
-	HDC hdc = GetDC(NULL);
-	HBITMAP hBitmap = CreateCompatibleBitmap(hdc, iconInfo.xHotspot * 2, iconInfo.yHotspot * 2);
-
-
-	 
-
-
-
-	HDC hdcMem = CreateCompatibleDC(hdc);
-
-
-	SelectObject(hdcMem, hBitmap);
-
-	// Draw the icon onto the bitmap
-	DrawIcon(hdcMem, 0, 0, hIcon);
-
-	// Save the bitmap to a file
-	BITMAP bmp;
-	GetObject(hBitmap, sizeof(BITMAP), &bmp);
-
-	BITMAPFILEHEADER bmfHeader;
-	BITMAPINFOHEADER bi;
-	bi.biSize = sizeof(BITMAPINFOHEADER);
-	bi.biWidth = bmp.bmWidth;
-	bi.biHeight = bmp.bmHeight;
-	bi.biPlanes = 1;
-	bi.biBitCount = 32; // Use 32 bits for RGBA
-	bi.biCompression = BI_RGB;
-	bi.biSizeImage = 0;
-	bi.biXPelsPerMeter = 0;
-	bi.biYPelsPerMeter = 0;
-	bi.biClrUsed = 0;
-	bi.biClrImportant = 0;
-
-
-
-
-	DWORD dwSize = ((bmp.bmWidth * bi.biBitCount + 31) / 32) * 4 * bmp.bmHeight;
-	BYTE* pPixels = new BYTE[dwSize];
-	GetDIBits(hdcMem, hBitmap, 0, bmp.bmHeight, pPixels, (BITMAPINFO*)&bi, DIB_RGB_COLORS);
-
-	// Create the file
-	HANDLE hFile = CreateFileA(filename.c_str(), GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
-	if (hFile != INVALID_HANDLE_VALUE) {
-		// Write the bitmap file header
-		bmfHeader.bfType = 0x4D42; // 'BM'
-		bmfHeader.bfSize = sizeof(BITMAPFILEHEADER) + sizeof(BITMAPINFOHEADER) + dwSize;
-		bmfHeader.bfReserved1 = 0;
-		bmfHeader.bfReserved2 = 0;
-		bmfHeader.bfOffBits = sizeof(BITMAPFILEHEADER) + sizeof(BITMAPINFOHEADER);
-		DWORD dwWritten;
-		WriteFile(hFile, &bmfHeader, sizeof(BITMAPFILEHEADER), &dwWritten, NULL);
-		WriteFile(hFile, &bi, sizeof(BITMAPINFOHEADER), &dwWritten, NULL);
-		WriteFile(hFile, pPixels, dwSize, &dwWritten, NULL);
-		CloseHandle(hFile);
-	}
-
-	// Clean up
-	delete[] pPixels;
-	DeleteObject(hBitmap);
-	DeleteDC(hdcMem);
-	ReleaseDC(NULL, hdc);
+    // following ICONHEADER is a series of ICONDIR structures (idCount of them, in fact)
+    return nWritten;
 }
 
+//
+// Return the number of BYTES the bitmap will take ON DISK
+//
+static UINT NumBitmapBytes(BITMAP* pBitmap)
+{
+    int nWidthBytes = pBitmap->bmWidthBytes;
 
+    // bitmap scanlines MUST be a multiple of 4 bytes when stored
+    // inside a bitmap resource, so round up if necessary
+    if (nWidthBytes & 3)
+        nWidthBytes = (nWidthBytes + 4) & ~3;
+
+    return nWidthBytes * pBitmap->bmHeight;
+}
+
+//
+// Return number of bytes written
+//
+static UINT WriteIconImageHeader(HANDLE hFile, BITMAP* pbmpColor, BITMAP* pbmpMask)
+{
+    BITMAPINFOHEADER biHeader;
+    DWORD nWritten;
+    UINT nImageBytes;
+
+    // calculate how much space the COLOR and MASK bitmaps take
+    nImageBytes = NumBitmapBytes(pbmpColor) + NumBitmapBytes(pbmpMask);
+
+    // write the ICONIMAGE to disk (first the BITMAPINFOHEADER)
+    ZeroMemory(&biHeader, sizeof(biHeader));
+
+    // Fill in only those fields that are necessary
+    biHeader.biSize = sizeof(biHeader);
+    biHeader.biWidth = pbmpColor->bmWidth;
+    biHeader.biHeight = pbmpColor->bmHeight * 2; // height of color+mono
+    biHeader.biPlanes = pbmpColor->bmPlanes;
+    biHeader.biBitCount = pbmpColor->bmBitsPixel;
+    biHeader.biSizeImage = nImageBytes;
+
+    // write the BITMAPINFOHEADER
+    WriteFile(hFile, &biHeader, sizeof(biHeader), &nWritten, 0);
+
+    // write the RGBQUAD color table (for 16 and 256 colour icons)
+    if (pbmpColor->bmBitsPixel == 2 || pbmpColor->bmBitsPixel == 8)
+    {
+
+    }
+
+    return nWritten;
+}
+
+//
+// Wrapper around GetIconInfo and GetObject(BITMAP)
+//
+static BOOL GetIconBitmapInfo(HICON hIcon, ICONINFO* pIconInfo, BITMAP* pbmpColor, BITMAP* pbmpMask)
+{
+    if (!GetIconInfo(hIcon, pIconInfo))
+        return FALSE;
+
+    if (!GetObject(pIconInfo->hbmColor, sizeof(BITMAP), pbmpColor))
+        return FALSE;
+
+    if (!GetObject(pIconInfo->hbmMask, sizeof(BITMAP), pbmpMask))
+        return FALSE;
+
+    return TRUE;
+}
+
+//
+// Write one icon directory entry - specify the index of the image
+//
+static UINT WriteIconDirectoryEntry(HANDLE hFile, int nIdx, HICON hIcon, UINT nImageOffset)
+{
+    ICONINFO iconInfo;
+    ICONDIR iconDir;
+
+    BITMAP bmpColor;
+    BITMAP bmpMask;
+
+    DWORD nWritten;
+    UINT nColorCount;
+    UINT nImageBytes;
+
+    GetIconBitmapInfo(hIcon, &iconInfo, &bmpColor, &bmpMask);
+
+    nImageBytes = NumBitmapBytes(&bmpColor) + NumBitmapBytes(&bmpMask);
+
+    if (bmpColor.bmBitsPixel >= 8)
+        nColorCount = 0;
+    else
+        nColorCount = 1 << (bmpColor.bmBitsPixel * bmpColor.bmPlanes);
+
+    // Create the ICONDIR structure
+    iconDir.bWidth = (BYTE)bmpColor.bmWidth;
+    iconDir.bHeight = (BYTE)bmpColor.bmHeight;
+    iconDir.bColorCount = nColorCount;
+    iconDir.bReserved = 0;
+    iconDir.wPlanes = bmpColor.bmPlanes;
+    iconDir.wBitCount = bmpColor.bmBitsPixel;
+    iconDir.dwBytesInRes = sizeof(BITMAPINFOHEADER) + nImageBytes;
+    iconDir.dwImageOffset = nImageOffset;
+
+    // Write to disk
+    WriteFile(hFile, &iconDir, sizeof(iconDir), &nWritten, 0);
+
+    // Free resources
+    DeleteObject(iconInfo.hbmColor);
+    DeleteObject(iconInfo.hbmMask);
+
+    return nWritten;
+}
+
+static UINT WriteIconData(HANDLE hFile, HBITMAP hBitmap)
+{
+    BITMAP bmp;
+    int i;
+    BYTE* pIconData;
+
+    UINT nBitmapBytes;
+    DWORD nWritten;
+
+    GetObject(hBitmap, sizeof(BITMAP), &bmp);
+
+    nBitmapBytes = NumBitmapBytes(&bmp);
+
+    pIconData = (BYTE*)malloc(nBitmapBytes);
+
+    GetBitmapBits(hBitmap, nBitmapBytes, pIconData);
+
+    // bitmaps are stored inverted (vertically) when on disk..
+    // so write out each line in turn, starting at the bottom + working
+    // towards the top of the bitmap. Also, the bitmaps are stored in packed
+    // in memory - scanlines are NOT 32bit aligned, just 1-after-the-other
+    for (i = bmp.bmHeight - 1; i >= 0; i--)
+    {
+        // Write the bitmap scanline
+        WriteFile(
+            hFile,
+            pIconData + (i * bmp.bmWidthBytes), // calculate offset to the line
+            bmp.bmWidthBytes, // 1 line of BYTES
+            &nWritten,
+            0);
+
+        // extend to a 32bit boundary (in the file) if necessary
+        if (bmp.bmWidthBytes & 3)
+        {
+            DWORD padding = 0;
+            WriteFile(hFile, &padding, 4 - bmp.bmWidthBytes, &nWritten, 0);
+        }
+    }
+
+    free(pIconData);
+
+    return nBitmapBytes;
+}
+
+//
+// Create a .ICO file, using the specified array of HICON images
+//
+BOOL SaveIcon3(LPCSTR szIconFile, HICON hIcon[], int nNumIcons)
+{
+    HANDLE hFile;
+    int i;
+    int* pImageOffset;
+
+    if (hIcon == 0 || nNumIcons < 1)
+        return FALSE;
+
+    hFile = CreateFileA(szIconFile, GENERIC_WRITE, 0, 0, CREATE_ALWAYS, 0, 0);
+
+    if (hFile == INVALID_HANDLE_VALUE)
+        return FALSE;
+
+    WriteIconHeader(hFile, nNumIcons);
+
+    SetFilePointer(hFile, sizeof(ICONDIR) * nNumIcons, 0, FILE_CURRENT);
+
+    pImageOffset = (int*)malloc(nNumIcons * sizeof(int));
+
+    for (i = 0; i < nNumIcons; i++)
+    {
+        ICONINFO iconInfo;
+        BITMAP bmpColor, bmpMask;
+
+        GetIconBitmapInfo(hIcon[i], &iconInfo, &bmpColor, &bmpMask);
+
+        pImageOffset[i] = SetFilePointer(hFile, 0, 0, FILE_CURRENT);
+
+        WriteIconImageHeader(hFile, &bmpColor, &bmpMask);
+
+        WriteIconData(hFile, iconInfo.hbmColor);
+        WriteIconData(hFile, iconInfo.hbmMask);
+
+        DeleteObject(iconInfo.hbmColor);
+        DeleteObject(iconInfo.hbmMask);
+    }
+    SetFilePointer(hFile, sizeof(ICONHEADER), 0, FILE_BEGIN);
+
+    for (i = 0; i < nNumIcons; i++)
+    {
+        WriteIconDirectoryEntry(hFile, i, hIcon[i], pImageOffset[i]);
+    }
+    free(pImageOffset);
+    CloseHandle(hFile);
+
+    return TRUE;
+}
  
-
-
-
-HICON GetFileIcon(const std::wstring& name, int size, bool linkOverlay) {
-	SHFILEINFO shfi;
-	UINT flags = SHGFI_ICON | SHGFI_USEFILEATTRIBUTES;
-
-	if (linkOverlay) {
-		flags |= SHGFI_LINKOVERLAY;
-	}
-
-	// Check the size specified for return.
-	if (size == Small) {
-		flags |= SHGFI_SMALLICON; // include the small icon flag
-	}
-	else {
-		flags |= SHGFI_LARGEICON; // include the large icon flag
-	}
-
-	// FILE_ATTRIBUTE_TEMPORARY 256
-	// FILE_ATTRIBUTE_NORMAL 16
-	// Get the file information
-	SHGetFileInfo(name.c_str(), FILE_ATTRIBUTE_NORMAL, &shfi, sizeof(shfi), flags);
-
-	// Clone the returned icon
-	HICON icon = (HICON)CopyIcon(shfi.hIcon);
-	DestroyIcon(shfi.hIcon); // Cleanup
-
-	return icon;
-}
-
- 
-extern "C" {
-	__declspec(dllexport) bool ExportIcon(std::string name, std::string exportPath, int size, bool linkOverlay) {
-
-		std::wstring_convert<std::codecvt_utf8<wchar_t>> converter;
-
-		HICON icon = GetFileIcon(converter.from_bytes(name), size, linkOverlay);
-
-		if (icon) {
-
-			SaveIconToFile(icon, exportPath.c_str());
-
-
-			DestroyIcon(icon);
-			return TRUE;
-		}
-		else {
-			return FALSE;
-
-		}
-	}
-}
-
 int main(int argc, const char** argv, const char** envp) {
 
 	if (argc < 3) {
@@ -224,13 +280,27 @@ int main(int argc, const char** argv, const char** envp) {
 
 	std::string inputFile = argv[1];
 	std::string exportPath = argv[2];
+	 
+
 
 	if (std::filesystem::exists(inputFile)) {
-		//IconSize::Small SHGFI_ICON or SHGFI_SMALLICON 
-		// IconSize::Small
-		if (ExportIcon(inputFile, exportPath, SHGFI_ICON or SHGFI_SMALLICON, false)) {
+ 
+		/*if (ExportIcon(inputFile, exportPath, SHGFI_ICON or SHGFI_SMALLICON, false)) {
 			std::cout << "Export: " << exportPath << std::endl;
-		}
+		}*/
+        std::wstring stemp = std::wstring(inputFile.begin(), inputFile.end());
+        LPCWSTR src = stemp.c_str();
+
+  
+
+        HICON icon;
+
+        auto result = SHDefExtractIconW(src, 0, 0, &icon, NULL, 128);
+        if (result == S_OK) {
+            SaveIcon3(exportPath.c_str(), &icon, 1);
+            std::cout << "Icon saved successfully to icon.ico" << std::endl;
+        }
+	
 
 
 	}
